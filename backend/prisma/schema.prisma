@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  CONTRACTOR
+  ADMIN
+}
+enum VerificationStatus {
+  UNSUBMITTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+enum Urgency {
+  EMERGENCY
+  TODAY
+  THIS_WEEK
+  FLEXIBLE
+}
+enum ProblemStatus {
+  OPEN
+  BOOKED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+enum QuoteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+enum BookingStatus {
+  SCHEDULED
+  ON_THE_WAY
+  IN_PROGRESS
+  AWAITING_CONFIRMATION
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+enum PaymentMethod {
+  CASH
+}
+enum PaymentStatus {
+  UNPAID
+  PAID
+}
+enum EntityType {
+  PROBLEM
+  BOOKING
+}
+enum MediaType {
+  IMAGE
+}
+enum NotificationType {
+  NEW_PROBLEM
+  NEW_QUOTE
+  QUOTE_ACCEPTED
+  QUOTE_REJECTED
+  BOOKING_STATUS
+  REVIEW_RECEIVED
+  NEW_MESSAGE
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  phone        String    @unique
+  passwordHash String    @map("password_hash")
+  fullName     String    @map("full_name")
+  role         Role
+  isActive     Boolean   @default(true) @map("is_active")
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  refreshTokens     RefreshToken[]
+  contractorProfile ContractorProfile?
+  problems          Problem[]  @relation("CustomerProblems")
+  quotes            Quote[]    @relation("ContractorQuotes")
+  customerBookings  Booking[]  @relation("CustomerBookings")
+  contractorBookings Booking[] @relation("ContractorBookings")
+  customerReviews   Review[]   @relation("CustomerReviews")
+  contractorReviews Review[]   @relation("ContractorReviews")
+  notifications     Notification[] @relation("UserNotifications")
+  sentMessages      ChatMessage[]  @relation("UserSentMessages")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  parentId  String?  @map("parent_id")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+  contractors ContractorCategory[]
+  problems    Problem[]
+
+  @@unique([parentId, name])
+  @@map("categories")
+}
+
+model ContractorProfile {
+  id                 String             @id @default(uuid())
+  userId             String             @unique @map("user_id")
+  bio                String             @default("")
+  yearsExperience    Int                @default(0) @map("years_experience")
+  city               String
+  serviceAreas       String[]           @default([]) @map("service_areas")
+  verificationStatus VerificationStatus @default(UNSUBMITTED) @map("verification_status")
+  rejectionReason    String?            @map("rejection_reason")
+  avgRating          Decimal            @default(0) @db.Decimal(3, 2) @map("avg_rating")
+  reviewCount        Int                @default(0) @map("review_count")
+  completedJobs      Int                @default(0) @map("completed_jobs")
+  cancelledJobs      Int                @default(0) @map("cancelled_jobs")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  user       User                 @relation(fields: [userId], references: [id])
+  categories ContractorCategory[]
+
+  @@index([verificationStatus])
+  @@index([city])
+  @@map("contractor_profiles")
+}
+
+model ContractorCategory {
+  contractorId String @map("contractor_id")
+  categoryId   String @map("category_id")
+  contractor   ContractorProfile @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  category     Category          @relation(fields: [categoryId], references: [id])
+
+  @@id([contractorId, categoryId])
+  @@map("contractor_categories")
+}
+
+model Problem {
+  id          String        @id @default(uuid())
+  customerId  String        @map("customer_id")
+  categoryId  String        @map("category_id")
+  title       String
+  description String
+  city        String
+  area        String        @default("")
+  latitude    Decimal?      @db.Decimal(9, 6)
+  longitude   Decimal?      @db.Decimal(9, 6)
+  urgency     Urgency
+  budgetMin   Int?          @map("budget_min")
+  budgetMax   Int?          @map("budget_max")
+  status      ProblemStatus @default(OPEN)
+  expiresAt   DateTime      @map("expires_at")
+  deletedAt   DateTime?     @map("deleted_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  customer User           @relation("CustomerProblems", fields: [customerId], references: [id])
+  category Category       @relation(fields: [categoryId], references: [id])
+  media    ProblemMedia[]
+  quotes   Quote[]
+  booking  Booking?
+
+  @@index([status])
+  @@index([categoryId])
+  @@index([city])
+  @@index([createdAt])
+  @@index([customerId])
+  @@map("problems")
+}
+
+model ProblemMedia {
+  id        String    @id @default(uuid())
+  problemId String    @map("problem_id")
+  url       String
+  type      MediaType @default(IMAGE)
+  sizeBytes Int       @map("size_bytes")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  problem   Problem   @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([problemId])
+  @@map("problem_media")
+}
+
+model Quote {
+  id                     String      @id @default(uuid())
+  problemId              String      @map("problem_id")
+  contractorId           String      @map("contractor_id")
+  price                  Int
+  estimatedDurationHours Int         @map("estimated_duration_hours")
+  proposedStartAt        DateTime?   @map("proposed_start_at")
+  message                String      @default("")
+  status                 QuoteStatus @default(PENDING)
+  createdAt              DateTime    @default(now()) @map("created_at")
+  updatedAt              DateTime    @updatedAt @map("updated_at")
+
+  problem    Problem  @relation(fields: [problemId], references: [id])
+  contractor User     @relation("ContractorQuotes", fields: [contractorId], references: [id])
+  booking    Booking?
+
+  @@unique([problemId, contractorId])
+  @@index([contractorId])
+  @@index([status])
+  @@map("quotes")
+}
+
+model Booking {
+  id            String        @id @default(uuid())
+  problemId     String        @unique @map("problem_id")
+  quoteId       String        @unique @map("quote_id")
+  customerId    String        @map("customer_id")
+  contractorId  String        @map("contractor_id")
+  agreedPrice   Int           @map("agreed_price")
+  scheduledAt   DateTime      @map("scheduled_at")
+  status        BookingStatus @default(SCHEDULED)
+  paymentMethod PaymentMethod @default(CASH) @map("payment_method")
+  paymentStatus PaymentStatus @default(UNPAID) @map("payment_status")
+  completedAt   DateTime?     @map("completed_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  problem    Problem @relation(fields: [problemId], references: [id])
+  quote      Quote   @relation(fields: [quoteId], references: [id])
+  customer   User    @relation("CustomerBookings", fields: [customerId], references: [id])
+  contractor User    @relation("ContractorBookings", fields: [contractorId], references: [id])
+  review     Review?
+  messages   ChatMessage[]
+
+  @@index([customerId])
+  @@index([contractorId])
+  @@index([status])
+  @@map("bookings")
+}
+
+model StatusHistory {
+  id         String     @id @default(uuid())
+  entityType EntityType @map("entity_type")
+  entityId   String     @map("entity_id")
+  fromStatus String?    @map("from_status")
+  toStatus   String     @map("to_status")
+  changedBy  String?    @map("changed_by")
+  note       String?
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  @@index([entityType, entityId])
+  @@map("status_history")
+}
+
+model Review {
+  id           String    @id @default(uuid())
+  bookingId    String    @unique @map("booking_id")
+  customerId   String    @map("customer_id")
+  contractorId String    @map("contractor_id")
+  rating       Int
+  comment      String?
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  booking    Booking @relation(fields: [bookingId], references: [id])
+  customer   User    @relation("CustomerReviews", fields: [customerId], references: [id])
+  contractor User    @relation("ContractorReviews", fields: [contractorId], references: [id])
+
+  @@index([contractorId])
+  @@map("reviews")
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  userId     String           @map("user_id")
+  type       NotificationType
+  title      String
+  message    String
+  entityType EntityType?      @map("entity_type")
+  entityId   String?          @map("entity_id")
+  isRead     Boolean          @default(false) @map("is_read")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+
+  user User @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  bookingId String   @map("booking_id")
+  senderId  String   @map("sender_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  sender  User    @relation("UserSentMessages", fields: [senderId], references: [id])
+
+  @@index([bookingId])
+  @@index([bookingId, createdAt])
+  @@map("chat_messages")
+}
